@@ -402,8 +402,6 @@
       //     - dragend 시 순위 재계산 및 시각적 효과 제거
       // -----------------------------------------------------------
       let dragItem = null;
-      let dragItemOriginalContainer = null;
-      let placeholder = null;
 
       document.addEventListener("dragstart", (e) => {
         if (e.target.classList.contains("pref-item")) {
@@ -411,15 +409,7 @@
           dragItem.classList.add("dragging");
           e.dataTransfer.effectAllowed = "move";
           e.dataTransfer.setData("text/plain", e.target.textContent);
-          dragItemOriginalContainer = dragItem.parentNode;
-
-          // 플레이스홀더 생성
-          placeholder = document.createElement("div");
-          placeholder.className = "placeholder";
-          dragItemOriginalContainer.insertBefore(
-            placeholder,
-            dragItem.nextSibling
-          );
+          // dragItemOriginalContainer = dragItem.parentNode;
         }
       });
 
@@ -427,13 +417,6 @@
         if (dragItem) {
           dragItem.classList.remove("dragging");
           dragItem = null;
-          dragItemOriginalContainer = null;
-
-          // 플레이스홀더 제거
-          if (placeholder) {
-            placeholder.remove();
-            placeholder = null;
-          }
 
           // 드래그 종료 후 모든 카드의 순위 갱신
           recalcAllRanks();
@@ -447,7 +430,7 @@
         if (!list || !dragItem) return;
 
         // 같은 list 안에서만 drop 허용
-        if (list === dragItemOriginalContainer) {
+        if (list === dragItem.parentNode) {
           const afterElement = getDragAfterElement(list, e.clientX, e.clientY);
           if (afterElement == null) {
             list.appendChild(dragItem);
@@ -462,7 +445,7 @@
         if (!list || !dragItem) return;
 
         // 같은 list 안에서만 drop 허용
-        if (list === dragItemOriginalContainer) {
+        if (list === dragItem.parentNode) {
           list.classList.add("drop-over");
         }
       });
@@ -472,7 +455,7 @@
         if (!list || !dragItem) return;
 
         // 같은 list 안에서만 drop 허용
-        if (list === dragItemOriginalContainer) {
+        if (list === dragItem.parentNode) {
           list.classList.remove("drop-over");
         }
       });
@@ -481,14 +464,9 @@
         const list = e.target.closest(".preferences-list");
         if (!list || !dragItem) return;
 
-        if (list === dragItemOriginalContainer) {
+        if (list === dragItem.parentNode) {
           list.classList.remove("drop-over");
-          // 플레이스홀더를 기준으로 위치 조정
-          if (placeholder) {
-            list.insertBefore(dragItem, placeholder);
-            placeholder.remove();
-            placeholder = null;
-          }
+          // 플레이스홀더를 기준으로 위치 조정하는 부분 제거
         }
       });
 
