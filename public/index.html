@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>카이스트 정글 팀 형성 시뮬레이터 v2024.12</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      /* 드래그 중인 아이템 스타일 */
+      .dragging {
+        opacity: 0.5;
+        border: 2px dashed #6b21a8; /* 보라색 테두리 */
+      }
+      /* 드롭 위치 표시 */
+      .drop-over {
+        border-top: 2px solid #9333ea; /* 더 진한 보라색 */
+      }
+      /* 플레이스홀더 스타일 */
+      .placeholder {
+        height: 40px;
+        border: 2px dashed #c084fc; /* 연한 보라색 */
+        margin-bottom: 8px;
+        border-radius: 4px;
+      }
+      /* 애니메이션 추가 */
+      .pref-item {
+        transition: transform 0.2s, background-color 0.2s;
+      }
+      .pref-item.dragging {
+        background-color: #e0e7ff; /* 연한 파란색 배경 */
+      }
+    </style>
+  </head>
+  <body class="font-sans m-5 bg-gray-50">
+    <div class="max-w-7xl mx-auto p-4">
+      <h1 class="text-3xl font-bold mb-6 text-center">
+        카이스트 정글 팀 형성 시뮬레이터 v2024.12
+      </h1>
+      <p class="mb-8 text-center text-gray-700">
+        리더/팀원 리스트를 콤마로 구분해 입력한 뒤 등록하면,<br />
+        각각 선호도 목록(무작위 생성 + 드래그앤드롭 가능)을 사용해,<br />
+        <strong>Gale-Shapley 기반 안정 매칭</strong>을 수행합니다.<br />
+        다만, <strong>리더의 수용인원(capacity)은</strong> 전체 팀원 수를
+        기준으로 (최대-최소 ≤ 1)을 만족하도록
+        <strong>랜덤 배정</strong>됩니다.<br /><br />
+        <strong>※</strong> 각 선호 아이템(pref-item) 좌측의
+        <em>#1, #2...</em> 등은 현재 순위를 의미합니다.
+      </p>
+
+      <!-- (1) Import/Export 버튼 영역 (최초부터 노출) -->
+      <div
+        class="mb-6 flex flex-col sm:flex-row justify-center items-center space-y-2 sm:space-y-0 sm:space-x-4"
+      >
+        <!-- 숨겨진 파일 업로드 input -->
+        <input type="file" id="importFile" accept=".json" class="hidden" />
+
+        <button
+          id="importButton"
+          class="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600 transition w-full sm:w-auto"
+        >
+          Import Preferences
+        </button>
+        <button
+          id="exportButton"
+          class="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600 transition w-full sm:w-auto"
+        >
+          Export Preferences
+        </button>
+      </div>
+
+      <!-- 사전 등록 -->
+      <div class="mb-8 p-6 bg-white border border-gray-300 rounded shadow-md">
+        <h2 class="text-2xl font-semibold mb-4 text-center">사전 등록</h2>
+        <div class="flex flex-col md:flex-row md:justify-center md:space-x-8">
+          <div class="mb-4 md:mb-0">
+            <label class="font-bold block mb-2">팀원 리스트:</label>
+            <textarea
+              id="preMemberList"
+              class="border p-3 w-full md:w-80 h-24 rounded"
+              placeholder="M1,M2,M3"
+            ></textarea>
+          </div>
+          <div>
+            <label class="font-bold block mb-2">리더 리스트:</label>
+            <textarea
+              id="preLeaderList"
+              class="border p-3 w-full md:w-80 h-24 rounded"
+              placeholder="L1,L2,L3"
+            ></textarea>
+          </div>
+        </div>
+        <div class="flex justify-center mt-6">
+          <button
+            id="registerLists"
+            class="bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600 transition w-full sm:w-auto"
+          >
+            등록
+          </button>
+        </div>
+      </div>
+
+      <!-- 메인 UI (처음엔 숨김) -->
+      <div id="mainUI" class="hidden">
+        <p class="mb-6 text-center text-gray-600">
+          팀원/리더의 선호 목록(pref-item)은 무작위로 생성됩니다.<br />
+          드래그앤드롭으로 순서를 변경할 때마다 좌측 순위가 갱신됩니다.
+        </p>
+
+        <!-- 팀원 카드 영역 -->
+        <div class="section mb-8">
+          <h2 class="text-2xl font-semibold mb-4 text-center">팀원</h2>
+          <div
+            id="membersContainer"
+            class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6"
+          ></div>
+        </div>
+
+        <!-- 리더 카드 영역 -->
+        <div class="section mb-8">
+          <h2 class="text-2xl font-semibold mb-4 text-center">리더</h2>
+          <div
+            id="leadersContainer"
+            class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6"
+          ></div>
+        </div>
+
+        <!-- 매칭 실행 버튼 -->
+        <div class="flex justify-center">
+          <button
+            id="runButton"
+            class="bg-green-500 text-white px-6 py-3 rounded font-semibold hover:bg-green-600 transition w-full sm:w-auto"
+          >
+            매칭 실행
+          </button>
+        </div>
+
+        <!-- 매칭 결과(카드 UI) -->
+        <div class="output-container mt-12">
+          <h2 class="text-2xl font-semibold mb-6 text-center">매칭 결과</h2>
+          <!-- 매칭 결과를 카드 형태로 담을 컨테이너 -->
+          <div
+            id="matchResults"
+            class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6"
+          ></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // 등록된 팀원/리더 목록을 저장할 변수
+      let knownMembers = [];
+      let knownLeaders = [];
+
+      // -----------------------------------------------------------
+      // [1] 사전 등록 (Register): 팀원/리더 ID만 등록하고 UI 생성
+      // -----------------------------------------------------------
+      document.getElementById("registerLists").addEventListener("click", () => {
+        const mList = document
+          .getElementById("preMemberList")
+          .value.split(",")
+          .map((v) => v.trim())
+          .filter(Boolean);
+
+        const lList = document
+          .getElementById("preLeaderList")
+          .value.split(",")
+          .map((v) => v.trim())
+          .filter(Boolean);
+
+        if (mList.length === 0 || lList.length === 0) {
+          alert("팀원/리더 리스트를 올바르게 입력하세요.");
+          return;
+        }
+
+        knownMembers = mList;
+        knownLeaders = lList;
+
+        generateUI(); // 카드 자동 생성 (무작위 선호도)
+        document.getElementById("mainUI").classList.remove("hidden");
+        alert("리스트 등록 및 UI 생성 완료!");
+      });
+
+      // -----------------------------------------------------------
+      // [2] Import / Export 기능
+      // -----------------------------------------------------------
+      // Import 버튼 → 파일 선택창 열기
+      document.getElementById("importButton").addEventListener("click", () => {
+        document.getElementById("importFile").click();
+      });
+
+      // 파일 선택 후 → JSON 파싱 및 UI 반영
+      document.getElementById("importFile").addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          try {
+            const data = JSON.parse(evt.target.result);
+            /*
+            data 구조 예시:
+            {
+              "members": ["M1","M2","M3"],
+              "leaders": ["L1","L2"],
+              "membersPrefs": {
+                "M1":["L2","L1"], 
+                "M2":["L1","L2"], ...
+              },
+              "leadersPrefs": {
+                "L1":["M2","M3","M1"], 
+                "L2":["M1","M2","M3"], ...
+              }
+            }
+          */
+            if (
+              !data.members ||
+              !data.leaders ||
+              !data.membersPrefs ||
+              !data.leadersPrefs
+            ) {
+              throw new Error("Invalid JSON structure");
+            }
+
+            // (추가) 사전 등록 영역의 텍스트도 업데이트
+            document.getElementById("preMemberList").value =
+              data.members.join(",");
+            document.getElementById("preLeaderList").value =
+              data.leaders.join(",");
+
+            // 기존 UI 변수를 갱신
+            knownMembers = data.members;
+            knownLeaders = data.leaders;
+
+            // 임포트된 선호 데이터를 기반으로 카드 재생성
+            generateUIFromData(data.membersPrefs, data.leadersPrefs);
+
+            // 메인 UI 표시
+            document.getElementById("mainUI").classList.remove("hidden");
+
+            alert("Import 완료! UI와 사전 등록 리스트가 갱신되었습니다.");
+          } catch (err) {
+            console.error(err);
+            alert("Import 실패. JSON 형식이 올바른지 확인하세요.");
+          }
+        };
+        reader.readAsText(file);
+      });
+
+      // Export 버튼 → JSON 파일 다운로드
+      document.getElementById("exportButton").addEventListener("click", () => {
+        const membersPref = parseMembers();
+        const leadersPref = parseLeaders();
+
+        const exportData = {
+          members: knownMembers,
+          leaders: knownLeaders,
+          membersPrefs: membersPref,
+          leadersPrefs: leadersPref,
+        };
+
+        const jsonStr = JSON.stringify(exportData, null, 2);
+        const blob = new Blob([jsonStr], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "preferences.json";
+        a.click();
+
+        URL.revokeObjectURL(url);
+      });
+
+      // -----------------------------------------------------------
+      // [3] UI 생성
+      // -----------------------------------------------------------
+      // 무작위 섞기
+      function shuffle(arr) {
+        for (let i = arr.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+        return arr;
+      }
+
+      // (A) 기존: 무작위 선호도로 카드 생성
+      function generateUI() {
+        const membersContainer = document.getElementById("membersContainer");
+        const leadersContainer = document.getElementById("leadersContainer");
+
+        membersContainer.innerHTML = "";
+        leadersContainer.innerHTML = "";
+
+        // 팀원 카드 생성
+        knownMembers.forEach((m) => {
+          const randomPrefs = shuffle([...knownLeaders]);
+          const card = createMemberCard(m, randomPrefs);
+          membersContainer.appendChild(card);
+        });
+
+        // 리더 카드 생성
+        knownLeaders.forEach((l) => {
+          const randomPrefs = shuffle([...knownMembers]);
+          const card = createLeaderCard(l, randomPrefs);
+          leadersContainer.appendChild(card);
+        });
+
+        // 초기 1회 순위 재계산
+        recalcAllRanks();
+      }
+
+      // (B) Import된 JSON 데이터(선호 목록)를 반영하여 카드 생성
+      function generateUIFromData(membersPrefs, leadersPrefs) {
+        const membersContainer = document.getElementById("membersContainer");
+        const leadersContainer = document.getElementById("leadersContainer");
+
+        membersContainer.innerHTML = "";
+        leadersContainer.innerHTML = "";
+
+        // 팀원 카드
+        for (let m of knownMembers) {
+          const prefs = membersPrefs[m] || [];
+          const card = createMemberCard(m, prefs);
+          membersContainer.appendChild(card);
+        }
+
+        // 리더 카드
+        for (let l of knownLeaders) {
+          const prefs = leadersPrefs[l] || [];
+          const card = createLeaderCard(l, prefs);
+          leadersContainer.appendChild(card);
+        }
+
+        // 생성 후 순위 갱신
+        recalcAllRanks();
+      }
+
+      // -----------------------------------------------------------
+      // [4] 카드 생성(선호 아이템에 순위 표시용 rankSpan 포함)
+      // -----------------------------------------------------------
+      function createMemberCard(id, prefs = []) {
+        const card = document.createElement("div");
+        card.className =
+          "card bg-white border border-gray-300 rounded p-4 relative shadow-md flex flex-col h-full";
+        card.innerHTML = `
+          <h3 class="text-lg font-semibold mb-2 text-center">팀원</h3>
+          <div class="entry mb-3">
+              <label class="font-bold inline-block w-20">ID:</label><span class="member-id">${id}</span>
+          </div>
+          <div class="preferences-list flex flex-col gap-2 border border-dashed border-gray-400 rounded p-2 min-h-[50px] flex-grow"></div>
+        `;
+        const prefsList = card.querySelector(".preferences-list");
+        prefs.forEach((p) => {
+          prefsList.appendChild(createPrefItem("member-pref", p));
+        });
+        return card;
+      }
+
+      function createLeaderCard(id, prefs = []) {
+        const card = document.createElement("div");
+        card.className =
+          "card bg-white border border-gray-300 rounded p-4 relative shadow-md flex flex-col h-full";
+        card.innerHTML = `
+          <h3 class="text-lg font-semibold mb-2 text-center">리더</h3>
+          <div class="entry mb-3">
+              <label class="font-bold inline-block w-20">ID:</label><span class="leader-id">${id}</span>
+          </div>
+          <div class="preferences-list flex flex-col gap-2 border border-dashed border-gray-400 rounded p-2 min-h-[50px] flex-grow"></div>
+        `;
+        const prefsList = card.querySelector(".preferences-list");
+        prefs.forEach((p) => {
+          prefsList.appendChild(createPrefItem("leader-pref", p));
+        });
+        return card;
+      }
+
+      // pref-item 내부에 rankSpan(#1,#2) + 실제 아이템 텍스트
+      function createPrefItem(prefClass, value = "") {
+        const item = document.createElement("div");
+        item.className = `pref-item ${prefClass} bg-gray-200 rounded px-2 py-1 cursor-move flex items-center gap-2`;
+        item.draggable = true;
+
+        // 순위 표시용
+        const rankSpan = document.createElement("span");
+        rankSpan.className = "pref-rank text-sm text-gray-700";
+        rankSpan.textContent = "#?"; // 초기 (dragend 후 업데이트)
+
+        // 실질 텍스트
+        const contentSpan = document.createElement("span");
+        contentSpan.textContent = value;
+
+        item.appendChild(rankSpan);
+        item.appendChild(contentSpan);
+
+        return item;
+      }
+
+      // -----------------------------------------------------------
+      // [5] 드래그앤드롭
+      //     - dragstart 시 시각적 강조 추가
+      //     - dragover 시 드롭 위치 표시
+      //     - dragend 시 순위 재계산 및 시각적 효과 제거
+      // -----------------------------------------------------------
+      let dragItem = null;
+      let dragItemOriginalContainer = null;
+      let placeholder = null;
+
+      document.addEventListener("dragstart", (e) => {
+        if (e.target.classList.contains("pref-item")) {
+          dragItem = e.target;
+          dragItem.classList.add("dragging");
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", e.target.textContent);
+          dragItemOriginalContainer = dragItem.parentNode;
+
+          // 플레이스홀더 생성
+          placeholder = document.createElement("div");
+          placeholder.className = "placeholder";
+          dragItemOriginalContainer.insertBefore(
+            placeholder,
+            dragItem.nextSibling
+          );
+        }
+      });
+
+      document.addEventListener("dragend", () => {
+        if (dragItem) {
+          dragItem.classList.remove("dragging");
+          dragItem = null;
+          dragItemOriginalContainer = null;
+
+          // 플레이스홀더 제거
+          if (placeholder) {
+            placeholder.remove();
+            placeholder = null;
+          }
+
+          // 드래그 종료 후 모든 카드의 순위 갱신
+          recalcAllRanks();
+        }
+      });
+
+      document.addEventListener("dragover", (e) => {
+        e.preventDefault(); // 필수: drop 이벤트를 트리거하기 위해
+
+        const list = e.target.closest(".preferences-list");
+        if (!list || !dragItem) return;
+
+        // 같은 list 안에서만 drop 허용
+        if (list === dragItemOriginalContainer) {
+          const afterElement = getDragAfterElement(list, e.clientX, e.clientY);
+          if (afterElement == null) {
+            list.appendChild(dragItem);
+          } else {
+            list.insertBefore(dragItem, afterElement);
+          }
+        }
+      });
+
+      document.addEventListener("dragenter", (e) => {
+        const list = e.target.closest(".preferences-list");
+        if (!list || !dragItem) return;
+
+        // 같은 list 안에서만 drop 허용
+        if (list === dragItemOriginalContainer) {
+          list.classList.add("drop-over");
+        }
+      });
+
+      document.addEventListener("dragleave", (e) => {
+        const list = e.target.closest(".preferences-list");
+        if (!list || !dragItem) return;
+
+        // 같은 list 안에서만 drop 허용
+        if (list === dragItemOriginalContainer) {
+          list.classList.remove("drop-over");
+        }
+      });
+
+      document.addEventListener("drop", (e) => {
+        const list = e.target.closest(".preferences-list");
+        if (!list || !dragItem) return;
+
+        if (list === dragItemOriginalContainer) {
+          list.classList.remove("drop-over");
+          // 플레이스홀더를 기준으로 위치 조정
+          if (placeholder) {
+            list.insertBefore(dragItem, placeholder);
+            placeholder.remove();
+            placeholder = null;
+          }
+        }
+      });
+
+      function getDragAfterElement(container, x, y) {
+        const draggableElements = [
+          ...container.querySelectorAll(".pref-item:not(.dragging)"),
+        ];
+        return draggableElements.reduce(
+          (closest, child) => {
+            const box = child.getBoundingClientRect();
+            const offset = y - box.top - box.height / 2;
+            if (offset < 0 && offset > closest.offset) {
+              return { offset: offset, element: child };
+            } else {
+              return closest;
+            }
+          },
+          { offset: Number.NEGATIVE_INFINITY }
+        ).element;
+      }
+
+      // -----------------------------------------------------------
+      // [6] 우선순위 표시(#1,#2...) 갱신
+      // -----------------------------------------------------------
+      function recalcAllRanks() {
+        // 모든 .preferences-list 에 대해
+        const allPrefLists = document.querySelectorAll(".preferences-list");
+        allPrefLists.forEach((list) => {
+          const items = list.querySelectorAll(".pref-item");
+          items.forEach((item, idx) => {
+            const rankSpan = item.querySelector(".pref-rank");
+            if (rankSpan) {
+              rankSpan.textContent = `#${idx + 1}`;
+            }
+          });
+        });
+      }
+
+      // -----------------------------------------------------------
+      // [7] Gale-Shapley 안정 매칭 (Many-to-One) & 결과 표시
+      // -----------------------------------------------------------
+
+      // (a) 팀원/리더 선호도 파싱
+      function parseMembers() {
+        const members = {};
+        const blocks = document.querySelectorAll("#membersContainer .card");
+        blocks.forEach((block) => {
+          const mId = block.querySelector(".member-id").textContent.trim();
+          if (!mId) return;
+
+          // pref-item 텍스트에서 rank(#1, #2...) 제거
+          const prefs = [...block.querySelectorAll(".member-pref")].map((i) =>
+            i.textContent.replace(/^#\?\s*/, "").replace(/^#\d+\s*/, "")
+          );
+          members[mId] = prefs;
+        });
+        return members;
+      }
+
+      function parseLeaders() {
+        const leaders = {};
+        const blocks = document.querySelectorAll("#leadersContainer .card");
+        blocks.forEach((block) => {
+          const lId = block.querySelector(".leader-id").textContent.trim();
+          if (!lId) return;
+
+          const prefs = [...block.querySelectorAll(".leader-pref")].map((i) =>
+            i.textContent.replace(/^#\?\s*/, "").replace(/^#\d+\s*/, "")
+          );
+          leaders[lId] = prefs;
+        });
+        return leaders;
+      }
+
+      // (b) 리더 capacity 랜덤 생성
+      //     - (maxCapacity - minCapacity) ≤ 1
+      //     - 총합 = 전체 팀원 수
+      function generateLeaderCapacities(leaders, totalMembers) {
+        const nLeaders = leaders.length;
+        const base = Math.floor(totalMembers / nLeaders);
+        let remainder = totalMembers % nLeaders;
+
+        // capacities: leaderId → capacity
+        const capacities = {};
+
+        // (1) 일단 모두 base로 할당
+        for (let l of leaders) {
+          capacities[l] = base;
+        }
+
+        // (2) remainder만큼 무작위 리더를 골라 capacity를 +1
+        //     이렇게 하면 max - min이 1 이내로 유지
+        //     (remainder가 0이면 전부 base, 아니면 base 또는 base+1)
+        const shuffledLeaders = shuffle([...leaders]);
+        for (let i = 0; i < remainder; i++) {
+          const leaderId = shuffledLeaders[i];
+          capacities[leaderId] = capacities[leaderId] + 1;
+        }
+
+        return capacities;
+      }
+
+      // (c) Gale-Shapley (Many-to-One) 알고리즘
+      //     - 팀원(개인) → 리더(대학) 버전
+      //     - 리더는 capacity만큼만 받아들임(자신의 선호도 순)
+      function stableMatching(membersPref, leadersPref, capacities) {
+        // (1) 리더가 선호도 높은 순으로 멤버를 찾기 용이하도록
+        //     => leadersPrefRank[leader][member] = 우선순위(숫자 작을수록 더 선호)
+        const leadersPrefRank = {};
+        for (const l in leadersPref) {
+          leadersPrefRank[l] = {};
+          const prefList = leadersPref[l];
+          // 예: prefList = ["M3", "M1", "M2"]라면,
+          // leadersPrefRank[l]["M3"] = 1
+          // leadersPrefRank[l]["M1"] = 2
+          // leadersPrefRank[l]["M2"] = 3
+          prefList.forEach((m, idx) => {
+            leadersPrefRank[l][m] = idx + 1;
+          });
+        }
+
+        // (2) 각 팀원의 프로포즈 대기열: 아직 프로포즈하지 않은 리더 리스트(앞에서부터)
+        const membersToPropose = {};
+        for (const m in membersPref) {
+          membersToPropose[m] = [...membersPref[m]]; // 복사
+        }
+
+        // (3) 현재 리더가 받아들인 멤버들 (배열 형태)
+        const accepted = {};
+        for (const l in leadersPref) {
+          accepted[l] = [];
+        }
+
+        // (4) freeMembers: 아직 매칭되지 못한(= 프로포즈 중인) 멤버들
+        let freeMembers = Object.keys(membersPref);
+
+        // (5) 반복: freeMember가 없거나, 더 이상 프로포즈할 리더가 없을 때까지
+        while (freeMembers.length > 0) {
+          const m = freeMembers.shift(); // 대기열에서 하나 pop
+
+          // m이 프로포즈할 리더 후보가 남아 있는지 확인
+          const mPrefList = membersToPropose[m];
+          if (mPrefList.length === 0) {
+            // 더 이상 프로포즈할 곳이 없는 경우 -> 매칭 실패 상태로 남음
+            continue;
+          }
+
+          // 가장 선호도가 높은 리더(아직 프로포즈 안 한)에게 프로포즈
+          const l = mPrefList.shift(); // 맨 앞 하나 제거(=프로포즈)
+          const currentAccepted = accepted[l];
+
+          if (currentAccepted.length < capacities[l]) {
+            // (a) 리더 l이 자리가 남으면 무조건 수용
+            currentAccepted.push(m);
+          } else {
+            // (b) 자리가 없으면, 현재 받아들인 멤버들 중
+            //     l의 선호도 순으로 봤을 때 가장 선호도가 낮은 멤버와 비교
+            let worstMember = null;
+            let worstRank = -1;
+            for (const candidate of currentAccepted) {
+              const rank = leadersPrefRank[l][candidate];
+              if (rank > worstRank) {
+                worstRank = rank;
+                worstMember = candidate;
+              }
+            }
+
+            // worstMember vs m: 누가 더 선호도가 높은지
+            const newRank = leadersPrefRank[l][m];
+            if (newRank < worstRank) {
+              // l이 m을 더 선호 -> worstMember 쫓겨남
+              // accepted에서 worstMember 제거, m 삽입
+              const index = currentAccepted.indexOf(worstMember);
+              currentAccepted.splice(index, 1);
+              currentAccepted.push(m);
+
+              // 쫓겨난 worstMember는 다시 free
+              freeMembers.push(worstMember);
+            } else {
+              // l이 기존 멤버(worstMember)를 더 선호 -> m 거절
+              // m은 다음 선호 리더에게 프로포즈해야 함
+              freeMembers.push(m);
+            }
+          }
+        }
+
+        // 결과: accepted[l] 에 들어간 멤버들
+        return accepted;
+      }
+
+      // (d) 매칭 결과 표시
+      function displayMatchingResults(matches, capacities) {
+        const matchResults = document.getElementById("matchResults");
+        matchResults.innerHTML = "";
+
+        for (const leader in matches) {
+          const card = document.createElement("div");
+          card.className =
+            "card bg-white border border-gray-300 rounded p-4 shadow-md flex flex-col h-full";
+
+          const title = document.createElement("h3");
+          title.className = "text-lg font-semibold mb-2 text-center";
+          title.textContent = `리더: ${leader} (cap: ${capacities[leader]})`;
+          card.appendChild(title);
+
+          const ul = document.createElement("ul");
+          ul.className = "list-disc list-inside flex-grow";
+          matches[leader].forEach((member) => {
+            const li = document.createElement("li");
+            li.textContent = member;
+            ul.appendChild(li);
+          });
+
+          card.appendChild(ul);
+          matchResults.appendChild(card);
+        }
+      }
+
+      // (e) 매칭 실행 버튼
+      document.getElementById("runButton").addEventListener("click", () => {
+        const membersPref = parseMembers();
+        const leadersPref = parseLeaders();
+
+        // 1) 리더 capacity 생성
+        const capacities = generateLeaderCapacities(
+          knownLeaders,
+          knownMembers.length
+        );
+
+        // 2) Gale-Shapley 안정 매칭
+        const matches = stableMatching(membersPref, leadersPref, capacities);
+
+        // 3) 결과 표시
+        displayMatchingResults(matches, capacities);
+      });
+    </script>
+  </body>
+</html>

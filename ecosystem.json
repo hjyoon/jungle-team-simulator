@@ -1,0 +1,14 @@
+{
+  "apps": [
+    {
+      "name": "jungle-team-simulator",
+      "cwd": "./",
+      "script": "./index.js",
+      "instances": "1",
+      "exec_mode": "fork",
+      "merge_logs": true,
+      "autorestart": true,
+      "watch": false
+    }
+  ]
+}
