@@ -48,6 +48,27 @@
         <em>#1, #2...</em> 등은 현재 순위를 의미합니다.
       </p>
 
+      <!-- 주도자 선택 -->
+      <div class="mb-6 p-6 bg-white border border-gray-300 rounded shadow-md">
+        <h2 class="text-2xl font-semibold mb-4 text-center">주도자 선택</h2>
+        <div class="flex justify-center space-x-4">
+          <label>
+            <input
+              type="radio"
+              name="proposer"
+              value="members"
+              class="mr-2"
+              checked
+            />
+            팀원 주도 매칭
+          </label>
+          <label>
+            <input type="radio" name="proposer" value="leaders" class="mr-2" />
+            리더 주도 매칭
+          </label>
+        </div>
+      </div>
+
       <!-- (1) Import/Export 버튼 영역 (최초부터 노출) -->
       <div
         class="mb-6 flex flex-col sm:flex-row justify-center items-center space-y-2 sm:space-y-0 sm:space-x-4"
@@ -199,20 +220,20 @@
           try {
             const data = JSON.parse(evt.target.result);
             /*
-            data 구조 예시:
-            {
-              "members": ["M1","M2","M3"],
-              "leaders": ["L1","L2"],
-              "membersPrefs": {
-                "M1":["L2","L1"], 
-                "M2":["L1","L2"], ...
-              },
-              "leadersPrefs": {
-                "L1":["M2","M3","M1"], 
-                "L2":["M1","M2","M3"], ...
-              }
-            }
-          */
+                  data 구조 예시:
+                  {
+                    "members": ["M1","M2","M3"],
+                    "leaders": ["L1","L2"],
+                    "membersPrefs": {
+                      "M1":["L2","L1"],
+                      "M2":["L1","L2"], ...
+                    },
+                    "leadersPrefs": {
+                      "L1":["M2","M3","M1"],
+                      "L2":["M1","M2","M3"], ...
+                    }
+                  }
+                */
             if (
               !data.members ||
               !data.leaders ||
@@ -343,12 +364,12 @@
         card.className =
           "card bg-white border border-gray-300 rounded p-4 relative shadow-md flex flex-col h-full";
         card.innerHTML = `
-          <h3 class="text-lg font-semibold mb-2 text-center">팀원</h3>
-          <div class="entry mb-3">
-              <label class="font-bold inline-block w-20">ID:</label><span class="member-id">${id}</span>
-          </div>
-          <div class="preferences-list flex flex-col gap-2 border border-dashed border-gray-400 rounded p-2 min-h-[50px] flex-grow"></div>
-        `;
+                <h3 class="text-lg font-semibold mb-2 text-center">팀원</h3>
+                <div class="entry mb-3">
+                    <label class="font-bold inline-block w-20">ID:</label><span class="member-id">${id}</span>
+                </div>
+                <div class="preferences-list flex flex-col gap-2 border border-dashed border-gray-400 rounded p-2 min-h-[50px] flex-grow"></div>
+              `;
         const prefsList = card.querySelector(".preferences-list");
         prefs.forEach((p) => {
           prefsList.appendChild(createPrefItem("member-pref", p));
@@ -361,12 +382,12 @@
         card.className =
           "card bg-white border border-gray-300 rounded p-4 relative shadow-md flex flex-col h-full";
         card.innerHTML = `
-          <h3 class="text-lg font-semibold mb-2 text-center">리더</h3>
-          <div class="entry mb-3">
-              <label class="font-bold inline-block w-20">ID:</label><span class="leader-id">${id}</span>
-          </div>
-          <div class="preferences-list flex flex-col gap-2 border border-dashed border-gray-400 rounded p-2 min-h-[50px] flex-grow"></div>
-        `;
+                <h3 class="text-lg font-semibold mb-2 text-center">리더</h3>
+                <div class="entry mb-3">
+                    <label class="font-bold inline-block w-20">ID:</label><span class="leader-id">${id}</span>
+                </div>
+                <div class="preferences-list flex flex-col gap-2 border border-dashed border-gray-400 rounded p-2 min-h-[50px] flex-grow"></div>
+              `;
         const prefsList = card.querySelector(".preferences-list");
         prefs.forEach((p) => {
           prefsList.appendChild(createPrefItem("leader-pref", p));
@@ -572,7 +593,11 @@
       // (c) Gale-Shapley (Many-to-One) 알고리즘
       //     - 팀원(개인) → 리더(대학) 버전
       //     - 리더는 capacity만큼만 받아들임(자신의 선호도 순)
-      function stableMatching(membersPref, leadersPref, capacities) {
+      function memberProposingStableMatching(
+        membersPref,
+        leadersPref,
+        capacities
+      ) {
         // (1) 리더가 선호도 높은 순으로 멤버를 찾기 용이하도록
         //     => leadersPrefRank[leader][member] = 우선순위(숫자 작을수록 더 선호)
         const leadersPrefRank = {};
@@ -657,6 +682,111 @@
         return accepted;
       }
 
+      function leaderProposingStableMatching(
+        membersPref,
+        leadersPref,
+        capacities
+      ) {
+        // (1) 각 멤버가 리더를 어느 정도 선호하는지
+        //     => membersPrefRank[m][l] = (숫자 작을수록 선호)
+        const membersPrefRank = {};
+        for (const m in membersPref) {
+          membersPrefRank[m] = {};
+          membersPref[m].forEach((leader, idx) => {
+            membersPrefRank[m][leader] = idx + 1;
+          });
+        }
+
+        // (2) 리더별로 아직 프로포즈하지 않은 멤버 목록 (리더 선호 순서)
+        const leadersToPropose = {};
+        for (const l in leadersPref) {
+          leadersToPropose[l] = [...leadersPref[l]]; // 복사
+        }
+
+        // (3) 리더가 매칭한 멤버들
+        const accepted = {};
+        for (const l in leadersPref) {
+          accepted[l] = [];
+        }
+
+        // (4) 자유 상태인 리더 (정원이 남았거나, 멤버를 빼앗긴 리더)
+        let freeLeaders = Object.keys(leadersPref);
+
+        // (5) 반복
+        while (freeLeaders.length > 0) {
+          const l = freeLeaders.shift();
+
+          // 프로포즈할 멤버가 남아 있는지 확인
+          if (leadersToPropose[l].length === 0) {
+            continue;
+          }
+
+          // 가장 선호도가 높은 멤버(아직 프로포즈 안 한)
+          const m = leadersToPropose[l].shift();
+
+          // m이 현재 누구와 매칭되어 있는지 찾기
+          let currentLeader = null;
+          for (const leader in accepted) {
+            if (accepted[leader].includes(m)) {
+              currentLeader = leader;
+              break;
+            }
+          }
+
+          // 매칭 로직
+          if (currentLeader === null) {
+            // 아직 매칭되지 않음
+            accepted[l].push(m);
+          } else {
+            // 이미 매칭된 경우, 멤버가 누구를 더 선호하는지 비교
+            const oldRank = membersPrefRank[m][currentLeader];
+            const newRank = membersPrefRank[m][l];
+            if (newRank < oldRank) {
+              // m이 새 리더 l을 더 선호
+              accepted[currentLeader] = accepted[currentLeader].filter(
+                (mem) => mem !== m
+              );
+              accepted[l].push(m);
+
+              // 기존 리더는 정원이 비었을 수 있으므로 자유 상태
+              if (accepted[currentLeader].length < capacities[currentLeader]) {
+                freeLeaders.push(currentLeader);
+              }
+            } else {
+              // m이 기존 리더를 더 선호
+              // 새 리더 l은 거절당함 → 다음 멤버에게 프로포즈 가능
+              freeLeaders.push(l);
+              continue;
+            }
+          }
+
+          // 정원 초과 검사
+          if (accepted[l].length > capacities[l]) {
+            // 가장 덜 선호하는 멤버(= worstMember)를 해고
+            let worstMember = null;
+            let worstIndex = -1;
+            for (const mem of accepted[l]) {
+              const idx = leadersPref[l].indexOf(mem);
+              if (idx > worstIndex) {
+                worstIndex = idx;
+                worstMember = mem;
+              }
+            }
+            accepted[l] = accepted[l].filter((mem) => mem !== worstMember);
+
+            // l은 더 나은 멤버를 구할 수 있으니 다시 자유
+            freeLeaders.push(l);
+          } else {
+            // 정원이 남아 있으면 추가로 프로포즈 가능
+            if (accepted[l].length < capacities[l]) {
+              freeLeaders.push(l);
+            }
+          }
+        }
+
+        return accepted;
+      }
+
       // (d) 매칭 결과 표시
       function displayMatchingResults(matches, capacities) {
         const matchResults = document.getElementById("matchResults");
@@ -687,19 +817,40 @@
 
       // (e) 매칭 실행 버튼
       document.getElementById("runButton").addEventListener("click", () => {
+        // 1) 팀원 및 리더 선호도 파싱
         const membersPref = parseMembers();
         const leadersPref = parseLeaders();
 
-        // 1) 리더 capacity 생성
+        // 2) 리더 capacity 생성
         const capacities = generateLeaderCapacities(
           knownLeaders,
           knownMembers.length
         );
 
-        // 2) Gale-Shapley 안정 매칭
-        const matches = stableMatching(membersPref, leadersPref, capacities);
+        // 3) 주도자 선택 확인
+        const proposerElement = document.querySelector(
+          'input[name="proposer"]:checked'
+        );
 
-        // 3) 결과 표시
+        const proposer = proposerElement.value;
+        let matches;
+
+        // 4) Gale-Shapley 안정 매칭
+        if (proposer === "members") {
+          matches = memberProposingStableMatching(
+            membersPref,
+            leadersPref,
+            capacities
+          );
+        } else {
+          matches = leaderProposingStableMatching(
+            membersPref,
+            leadersPref,
+            capacities
+          );
+        }
+
+        // 5) 결과 표시
         displayMatchingResults(matches, capacities);
       });
     </script>
